@@ -9,6 +9,8 @@ from scipy import interpolate
 import numpy as np
 from torch.utils.data import DataLoader
 from flirt.acc import get_acc_features
+from tsfresh import extract_features
+from tsfresh.feature_extraction import MinimalFCParameters
 
 class SlidingWindowIMUsDataset(Dataset):
     def __init__(self, data_dir='data/train', window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False): # time in ms
@@ -374,9 +376,29 @@ class SlidingWindowIMUsDataset(Dataset):
         print(segments_left)
         return segments_left, segments_right"""
     def process_segment(self, segment):
-        acc_data = segment[['AX', 'AY', 'AZ']]
-        acc_features = get_acc_features(acc_data, window_length=2, window_step_size=2, data_frequency=32)
+        # claulate frequency for segment
+        df = segment.copy()
+        pd.set_option('display.max_columns', None)
+        df.loc[:, 'timestamp_mills_ms'] = pd.to_numeric(df['timestamp_mills_ms'], errors='coerce')
+        df.loc[:, 'time_diff'] = df['timestamp_mills_ms'].diff()
+        average_time_diff_ms = df['time_diff'].mean()
+        average_time_diff_s = average_time_diff_ms / 1000
+        sampling_frequency = int(1 / average_time_diff_s)
+
+        # calculate acc features
+        flirt_acc_features = get_acc_features(segment[['AX', 'AY', 'AZ']], window_length=2,
+                                        window_step_size=2, data_frequency=sampling_frequency)
+        std_features = df[['AX', 'AY', 'AZ']].std()
+        for col in std_features.index:
+            flirt_acc_features[f'std_{col}'] = std_features[col]
     
+        percentiles = [0.25, 0.5, 0.75]
+        percentile_features = df[['AX', 'AY', 'AZ']].quantile(percentiles)
+        for percentile in percentiles:
+            for col in percentile_features.columns:
+                flirt_acc_features[f'percentile_{col}_{int(percentile*100)}'] = percentile_features.loc[percentile, col]
+        # calculate gyro features
+        
         means = [
             segment['AX'].mean(),
             segment['AY'].mean(),
