@@ -7,10 +7,7 @@ import pandas as pd
 import random
 from scipy import interpolate
 import numpy as np
-from torch.utils.data import DataLoader
 from flirt.acc import get_acc_features
-from tsfresh import extract_features
-from tsfresh.feature_extraction import MinimalFCParameters
 
 class SlidingWindowIMUsDataset(Dataset):
     def __init__(self, data_dir='data/train', window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False): # time in ms
@@ -412,15 +409,6 @@ class SlidingWindowIMUsDataset(Dataset):
         print('labels_tensor.shape', labels_tensor.shape)
         return features_tensor, labels_tensor
 
-if __name__ == "__main__":
-    data = SlidingWindowIMUsDataset(data_dir='data/train', window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False)
-    data_loader = DataLoader(data, batch_size=8, shuffle=False)
 
-    for i, batch in enumerate(data_loader):
-        print('**********************')
-        print(f"Batch {i} shapes:")
-        features, labels = batch
-        print(f"Features shape: {features.shape}")
-        print(f"Labels shape: {labels.shape}")
 
 
