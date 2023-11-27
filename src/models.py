@@ -62,6 +62,14 @@ def focal_loss(x, y, num_class, alpha=0.25, gamma=2):
 
     return sigmoid_focal_loss(x, targ, alpha=alpha, gamma=gamma, reduction='mean')
 
+"""def focal_loss(x, y, num_class, alpha=0.25, gamma=2):
+    # Assuming y has shape [batch_size, sequence_length]
+    # and x has shape [num_classes, batch_size, sequence_length]
+    print('Y shape: ', y)
+    targ = torch.nn.functional.one_hot(y, num_classes=num_class).type(torch.float)  # [batch_size, sequence_length, num_classes]
+    targ = targ.permute(2, 0, 1)  # [num_classes, batch_size, sequence_length]
+
+    return sigmoid_focal_loss(x, targ, alpha=alpha, gamma=gamma, reduction='mean')"""
 
 # https://github.com/yiskw713/asrf/blob/main/libs/loss_fn/tmse.py
 def tmse_loss(x, targ, gamma=0.15):

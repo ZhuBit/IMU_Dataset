@@ -302,11 +302,9 @@ class SlidingWindowIMUsDataset(Dataset):
         if len(most_common_label) > 1:
             print("Multiple most common labels found. Choosing the first one.")
         most_common_label = most_common_label.iloc[0]
-
+        print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', most_common_label)
         # Calculate the difference
-        time_diff = segment['timestamp_mills_ms'].iloc[-1] - segment['timestamp_mills_ms'].iloc[0]
-
-        #print(f"Time difference between first and last row: {time_diff} milliseconds")
+        #print(f"Time difference between first and last row: {segment['timestamp_mills_ms'].iloc[-1] - segment['timestamp_mills_ms'].iloc[0]} milliseconds")
         # claulate frequency for segment
         df = segment.copy()
         pd.set_option('display.max_columns', None)
@@ -347,7 +345,7 @@ class SlidingWindowIMUsDataset(Dataset):
 
         segment_result = pd.concat([flirt_gyro_features, flirt_gyro_features], axis=1)
 
-        # TODO somtimes shape is (2, 200) and sometimes (1, 200), possibly because of bit bigger data
+        # TODO somtimes shape is (2, 200) and sometimes (1, 200), possibly because of bit bigger data window
         segment_result = segment_result.iloc[0]
         segment_result['segment_items'] = segment.shape[0]
         segment_result['label'] = most_common_label
@@ -362,7 +360,7 @@ class SlidingWindowIMUsDataset(Dataset):
         # Get the base name without the '_L.csv' part
         idx = int(idx)
         base_name = self.left_files[idx].split('_L_annotated.csv')[0]
-        print('Base name', base_name)
+        #print('Base name', base_name)
 
         # Construct from names left and right, labels files
         left_file = os.path.join(self.data_dir, base_name + '_L_annotated.csv')
@@ -407,6 +405,7 @@ class SlidingWindowIMUsDataset(Dataset):
         labels_tensor = torch.tensor(labels, dtype=torch.long)
         print('features_tensor.shape', features_tensor.shape)
         print('labels_tensor.shape', labels_tensor.shape)
+        print('labels_tensor', labels_tensor[0])
         return features_tensor, labels_tensor
 
 
