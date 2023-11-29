@@ -24,7 +24,7 @@ def train(device, train_dataloader, val_dataloader, net, optimizer, scheduler, E
         for iteration, (features, labels) in enumerate(train_dataloader):
             net.train()
             print(f'Epoch: {ep} \tIteration: {iteration}')
-            print(f'Features: {features.shape} \tLabels: {labels.shape}')
+            print(f'Input Features: {features.shape} \tLabels: {labels.shape}')
             features = features.to(device)
             labels = labels.to(device)
 
@@ -35,11 +35,10 @@ def train(device, train_dataloader, val_dataloader, net, optimizer, scheduler, E
             splits = labels.shape[0]
 
             for i, value in enumerate(outputs):
-                print('Value shape: ', value.shape)
-                print('Label shape: ', labels.shape)
-                print('Label: ', labels[i])
-                loss += focal_loss(value.permute(1, 0, 2), labels[i], num_class=10, alpha=-1, gamma=1)
-                loss += tmse_loss(value, labels[i], gamma=0.1)
+                print('Outputs value shape: ', value.shape, i)
+                print('Labels[i] shape: ', labels[i].shape)
+                #loss += focal_loss(value.permute(1, 0, 2), labels[i], num_class=10, alpha=-1, gamma=1)
+                #loss += tmse_loss(value, labels[i], gamma=0.1)
 
             loss = 10 * loss / splits
             loss.backward()
@@ -110,14 +109,16 @@ if __name__ == '__main__':
     batch_size = 1
 
     data_dir = './data/train'
-    train_dataset = SlidingWindowIMUsDataset(data_dir=data_dir, window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False)
+    train_dataset = SlidingWindowIMUsDataset(data_dir=data_dir, window_len=20000, hop=500, sample_len=2000,
+                                             augmentation=False, ambidextrous=False)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     val_dir = './data/validate/'
-    val_dataset = SlidingWindowIMUsDataset(data_dir=val_dir, window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False)
+    val_dataset = SlidingWindowIMUsDataset(data_dir=val_dir, window_len=20000, hop=500, sample_len=2000,
+                                           augmentation=False, ambidextrous=False)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    net = MS_TCN2(num_layers_PG=11, num_layers_R=10, num_R=4, num_f_maps=128, dim=37, num_classes=10)
+    net = MS_TCN2(num_layers_PG=11, num_layers_R=10, num_R=4, num_f_maps=128, dim=402, num_classes=10)
     net.to(device)
 
     optimizer = optim.Adam(net.parameters(), lr=Lr_Rate, weight_decay=0.001)

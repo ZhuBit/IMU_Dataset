@@ -252,45 +252,40 @@ class SlidingWindowIMUsDataset(Dataset):
         cropped_left = left_data[(left_data['timestamp_mills_ms'] >= start_time) & (left_data['timestamp_mills_ms'] <= end_time)]
         cropped_right = right_data[(right_data['timestamp_mills_ms'] >= start_time) & (right_data['timestamp_mills_ms'] <= end_time)]
 
-        # Check and adjust the actual range of timestamps in the cropped data
-        actual_left_range = cropped_left['timestamp_mills_ms'].max() - cropped_left['timestamp_mills_ms'].min()
-        actual_right_range = cropped_right['timestamp_mills_ms'].max() - cropped_right['timestamp_mills_ms'].min()
+        print('Window created in range, Left: ', cropped_left['timestamp_mills_ms'].iloc[0],'-', cropped_left['timestamp_mills_ms'].iloc[-1], ' Right ', cropped_right['timestamp_mills_ms'].iloc[0], '-',  cropped_right['timestamp_mills_ms'].iloc[-1])
 
-        while actual_left_range < self.window_len or actual_right_range < self.window_len:
-            end_time += 1  # Increment end_time
-            cropped_left = left_data[(left_data['timestamp_mills_ms'] >= start_time) & (left_data['timestamp_mills_ms'] <= end_time)]
-            cropped_right = right_data[(right_data['timestamp_mills_ms'] >= start_time) & (right_data['timestamp_mills_ms'] <= end_time)]
-            actual_left_range = cropped_left['timestamp_mills_ms'].max() - cropped_left['timestamp_mills_ms'].min()
-            actual_right_range = cropped_right['timestamp_mills_ms'].max() - cropped_right['timestamp_mills_ms'].min()
+        return cropped_left, cropped_right, start_time
 
-        return cropped_left, cropped_right
-    def create_segments(self, cropped_left, cropped_right):
+    def create_segments(self, cropped_left, cropped_right, start_time):
         segments_left = []
         segments_right = []
 
-        start_time_left = cropped_left['timestamp_mills_ms'].min()
-        start_time_right = cropped_right['timestamp_mills_ms'].min()
-
         num_segments = ((self.window_len - self.sample_len) // self.hop) + 1
 
-        for _ in range(num_segments):
-            end_time_left = start_time_left + self.sample_len
-            end_time_right = start_time_right + self.sample_len
+        print('Creating segments, num_segments: ', num_segments, ' range: ')
 
-            segment_left = cropped_left[(cropped_left['timestamp_mills_ms'] >= start_time_left) &
-                                        (cropped_left['timestamp_mills_ms'] < end_time_left)]
-            segment_right = cropped_right[(cropped_right['timestamp_mills_ms'] >= start_time_right) &
-                                          (cropped_right['timestamp_mills_ms'] < end_time_right)]
-            #print('Size ', len(segment_left), len(segment_right))
+        for i, _ in enumerate(range(num_segments)):
+            end_time = start_time + self.sample_len
+            print('------------Segment ', i, '------------')
+            print('Segment range in ms: ', start_time, '-', end_time)
+
+            segment_left = cropped_left[(cropped_left['timestamp_mills_ms'] >= start_time) &
+                                        (cropped_left['timestamp_mills_ms'] < end_time)]
+            segment_right = cropped_right[(cropped_right['timestamp_mills_ms'] >= start_time) &
+                                          (cropped_right['timestamp_mills_ms'] < end_time)]
+            print('Segment created in range, Left: ', segment_left['timestamp_mills_ms'].iloc[0],'-', segment_left['timestamp_mills_ms'].iloc[-1], ' Right ', segment_right['timestamp_mills_ms'].iloc[0], '-',  segment_right['timestamp_mills_ms'].iloc[-1])
+            print('Segment count: ', len(segment_left), ' ', len(segment_right))
             segments_left.append(segment_left)
             segments_right.append(segment_right)
 
-            start_time_left += self.hop
-            start_time_right += self.hop
-        #print('Segment left range in ms', segments_left[0]['timestamp_mills_ms'].iloc[-1] - segments_left[0]['timestamp_mills_ms'].iloc[0])
+            # Increment start times by self.hop for the next segment
+            start_time += self.hop
 
+        for i in range(len(segments_left)):
+            print('Segments left range in ms ', i, ': ', segments_left[i]['timestamp_mills_ms'].iloc[-1] - segments_left[i]['timestamp_mills_ms'].iloc[0])
 
         return segments_left, segments_right
+
 
     def process_segment(self, segment):
         #print('segment.shape', segment.shape)
@@ -302,7 +297,7 @@ class SlidingWindowIMUsDataset(Dataset):
         if len(most_common_label) > 1:
             print("Multiple most common labels found. Choosing the first one.")
         most_common_label = most_common_label.iloc[0]
-        print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', most_common_label)
+
         # Calculate the difference
         #print(f"Time difference between first and last row: {segment['timestamp_mills_ms'].iloc[-1] - segment['timestamp_mills_ms'].iloc[0]} milliseconds")
         # claulate frequency for segment
@@ -323,6 +318,7 @@ class SlidingWindowIMUsDataset(Dataset):
 
         percentiles = [0.25, 0.5, 0.75]
         percentile_features = df[['AX', 'AY', 'AZ']].quantile(percentiles)
+
         for percentile in percentiles:
             for col in percentile_features.columns:
                 flirt_acc_features[f'percentile_{col}_{int(percentile*100)}'] = percentile_features.loc[percentile, col]
@@ -335,6 +331,7 @@ class SlidingWindowIMUsDataset(Dataset):
             flirt_gyro_features[f'std_{col}'] = std_features[col]
 
         percentile_features = df[['GX', 'GY', 'GZ']].quantile(percentiles)
+
         for percentile in percentiles:
             for col in percentile_features.columns:
                 flirt_gyro_features[f'percentile_{col}_{int(percentile*100)}'] = percentile_features.loc[percentile, col]
@@ -375,11 +372,13 @@ class SlidingWindowIMUsDataset(Dataset):
         left_data['timestamp_mills_ms'] = left_data['timestamp_mills_ms'].astype(float) * 1000
         right_data['timestamp_mills_ms'] = right_data['timestamp_mills_ms'].astype(float) * 1000
 
-        cropped_left, cropped_right = self.crop_data(left_data, right_data)
+        # Crop the deta in long window  and get star time
+        cropped_left, cropped_right, start_time = self.crop_data(left_data, right_data)
         #print('Croped left range in ms', cropped_left['timestamp_mills_ms'].iloc[-1] - cropped_left['timestamp_mills_ms'].iloc[0])
         #print('Croped right range in ms', cropped_right['timestamp_mills_ms'].iloc[-1] - cropped_right['timestamp_mills_ms'].iloc[0])
-        # Create segments
-        segments_left, segments_right = self.create_segments(cropped_left, cropped_right)
+
+        # Create segments based on start_time + hop
+        segments_left, segments_right = self.create_segments(cropped_left, cropped_right, start_time)
 
         # Process segments as needed
         # For example, calculate features for each segment
@@ -387,22 +386,23 @@ class SlidingWindowIMUsDataset(Dataset):
         features_right = [self.process_segment(segment) for segment in segments_right]
 
         # Apply augmentation with 50% probability if augment is True
-        if self.augmentation and random.random() > 0.5:
+        """if self.augmentation and random.random() > 0.5:
             one_augmentation = random.random() # which augmentation to take
             if one_augmentation > 0.5:
                 pass
             elif  one_augmentation <= 0.5:
-                pass
+                pass"""
 
         # Extract labels and remove them from features
         labels = [feature['label'] for feature in features_left]
         features_left = [feature.drop('label') for feature in features_left]
         features_right = [feature.drop('label') for feature in features_right]
+
         # Concatenate features from left and right for each segment
         concatenated_features = [pd.concat([left, right], axis=0) for left, right in zip(features_left, features_right)]
-
         features_tensor = torch.stack([torch.tensor(feature.values, dtype=torch.float32) for feature in concatenated_features])
         labels_tensor = torch.tensor(labels, dtype=torch.long)
+
         print('features_tensor.shape', features_tensor.shape)
         print('labels_tensor.shape', labels_tensor.shape)
         print('labels_tensor', labels_tensor[0])
@@ -465,7 +465,7 @@ class IMUDatasetResample(Dataset):
       cropped_right = right_data[(right_data['timestamp_mills_ms'] >= start_time) & (right_data['timestamp_mills_ms'] <= end_time)]
       # cropped_labels = labels_data[(labels_data['time'] >= start_time) & (labels_data['time'] < end_time)]
 
-      return cropped_left, cropped_right #, cropped_labels
+      return cropped_left, cropped_right, start_time #, cropped_labels
 
     def resample_imu_data(self, cropped_file):
         #create new timestamps for the period
@@ -500,56 +500,6 @@ class IMUDatasetResample(Dataset):
         resampled_data = pd.DataFrame(resampled_data, columns=['timestamp_mills_ms','GX', 'GY', 'GZ', 'AX', 'AY', 'AZ'])
 
         return resampled_data
-
-    # def labels_parser(self, text):
-    #     # Split the text by lines
-    #     lines = text.strip().split("\n")
-    #
-    #     # Lists to store parsed data
-    #     times = []
-    #     labels = []
-    #
-    #     # Regular expression patterns
-    #     timecode_pattern = re.compile(r"\d{2}:\d{2}:\d{2}:\d{2}")
-    #     metadata_pattern = re.compile(r"\|M:([\w,]+)")
-    #
-    #     for line in lines:
-    #         # Extract timecodes
-    #         timecodes = timecode_pattern.findall(line)
-    #         if len(timecodes) == 4:
-    #             times.append(timecodes[3])
-    #         else:
-    #             times.append(None)
-    #
-    #         # Extract labels
-    #         metadata_match = metadata_pattern.search(line)
-    #         if metadata_match:
-    #             labels.append(metadata_match.group(1))
-    #         else:
-    #             labels.append(None)
-    #
-    #     # Create DataFrame
-    #     df = pd.DataFrame({
-    #         "time": times,
-    #         "labels": labels
-    #     })
-    #
-    #     # Ensure that both times and labels are saved in the same row
-    #     for idx, row in df.iterrows():
-    #         if pd.isna(row["time"]) and not pd.isna(row["labels"]):
-    #             if idx > 0:
-    #                 df.at[idx-1, "labels"] = row["labels"]
-    #                 df.drop(idx, inplace=True)
-    #
-    #     # Remove rows with None values
-    #     df.dropna(how='any', inplace=True)
-    #
-    #     df.reset_index(drop=True, inplace=True)
-    #
-    #     df['time'] = df['time'].apply(self.timecode_to_milliseconds)
-    #
-    #     return df
-
     def timecode_to_milliseconds(self, timecode):
       # Assuming 30 frames per second
       milliseconds_per_frame = 1000 / 30
@@ -723,18 +673,8 @@ class IMUDatasetResample(Dataset):
         left_data = pd.read_csv(left_file)
         right_data = pd.read_csv(right_file)
 
-        # with open(labels_path, 'r') as f:
-        #     labels_text = f.read()
-        # labels_data = self.labels_parser(labels_text)
-
-        # # there are duplicates somhow??????
-        # left_data = left_data.drop_duplicates()
-        # right_data = right_data.drop_duplicates()
-
-        # crop data randomly
-        # croped_left, croped_righ, croped_labels = self.crop_data(left_data, right_data, labels_data)
-
-        croped_left, croped_righ = self.crop_data(left_data, right_data)
+        # crop data randomly and get start time
+        croped_left, croped_righ, start_time = self.crop_data(left_data, right_data)
 
         # resample data
         #print('L File: ', left_file)
@@ -757,19 +697,13 @@ class IMUDatasetResample(Dataset):
                 resample_left = self.overwrite_imu_data(resample_left, overwrite_factor=0.1)
                 resample_right = self.overwrite_imu_data(resample_right, overwrite_factor=0.1)
 
-
-
         left_final = np.asarray(resample_left.iloc[:, 1:]).transpose() #'GX', 'GY', 'GZ', 'AX', 'AY', 'AZ'
         right_final = np.asarray(resample_right.iloc[:, 1:]).transpose()
 
         # Convert the DataFrames to tensors
         left_tensor = torch.tensor(left_final, dtype=torch.float32)
         right_tensor = torch.tensor(right_final, dtype=torch.float32)
-
         labels_tensor = torch.tensor(sem_labels.astype(float), dtype=torch.short)
         hand_tensor = torch.tensor(hand_labels.astype(float), dtype=torch.short)
-
-
-        # labels_list = resample_labels['labels'].tolist()
 
         return left_tensor, right_tensor, labels_tensor, hand_tensor

@@ -132,6 +132,7 @@ class Prediction_Generation(nn.Module):
       f = self.conv_1x1_in(x)
 
       for i in range(self.num_layers):
+          x = x.permute(0, 2, 1)
           f_in = f
           f = self.conv_fusion[i](torch.cat([self.conv_dilated_1[i](f), self.conv_dilated_2[i](f)], 1))
           f = F.relu(f)
@@ -139,7 +140,7 @@ class Prediction_Generation(nn.Module):
           f = f + f_in
 
       out = self.conv_out(f)
-
+      out = out.permute(0, 2, 1)
       return out
 
 class Refinement(nn.Module):
