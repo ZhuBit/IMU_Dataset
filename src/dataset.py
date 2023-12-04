@@ -7,10 +7,10 @@ import pandas as pd
 import random
 from scipy import interpolate
 import numpy as np
-from flirt.acc import get_acc_features
+#   from flirt.acc import get_acc_features
 
 class SlidingWindowIMUsDataset(Dataset):
-    def __init__(self, data_dir='data/train', window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False): # time in ms
+    def __init__(self, data_dir, window_len=20000, hop=500, sample_len=2000, augmentation=False, ambidextrous=False): # time in ms
         super(SlidingWindowIMUsDataset, self).__init__()
 
         # List all files in the directory
@@ -144,6 +144,45 @@ class SlidingWindowIMUsDataset(Dataset):
         m, s, mm = time_str.split(':')
         return int(m) * 60 + int(s) + float(mm) / 100
 
+    def calculate_features_per_axis(self, data, key_suffix=None):
+        #print('Calculating features', '    data shape: ', data.shape)
+        FUNCTIONS = {
+            'mean': np.mean,
+            'std': np.std,
+            'min': np.min,
+            'max': np.max,
+            'ptp': np.ptp,
+            'sum': np.sum,
+            'energy': lambda x: np.sum(x ** 2)
+        }
+        data = np.asarray(data)
+
+        data_nans = np.isnan(data)
+        if np.any(data_nans):
+            warnings.warn(f'input data contains {np.count_nonzero(data_nans)} NaNs which will be removed')
+
+        results = {}
+        for axis in range(data.shape[1]):
+            axis_data = data[:, axis]
+            #axis_data = axis_data[~np.isnan(axis_data)]
+
+            if len(axis_data) > 0:
+                for key, value in FUNCTIONS.items():
+                    axis_key = f'axis{axis}_{key}'
+                    if key_suffix:
+                        axis_key = f'{key_suffix}_{axis_key}'
+                    results[axis_key] = value(axis_data)
+            else:
+                for key in FUNCTIONS.keys():
+                    axis_key = f'axis{axis}_{key}'
+                    if key_suffix:
+                        axis_key = f'{key_suffix}_{axis_key}'
+                    results[axis_key] = np.nan
+
+        #print('Results shape: ', len(results))
+        return results
+        
+
     def encode_IMU_data(self, segment):
         labels_to_idx = {
             'screwing': 0,
@@ -252,7 +291,7 @@ class SlidingWindowIMUsDataset(Dataset):
         cropped_left = left_data[(left_data['timestamp_mills_ms'] >= start_time) & (left_data['timestamp_mills_ms'] <= end_time)]
         cropped_right = right_data[(right_data['timestamp_mills_ms'] >= start_time) & (right_data['timestamp_mills_ms'] <= end_time)]
 
-        print('Window created in range, Left: ', cropped_left['timestamp_mills_ms'].iloc[0],'-', cropped_left['timestamp_mills_ms'].iloc[-1], ' Right ', cropped_right['timestamp_mills_ms'].iloc[0], '-',  cropped_right['timestamp_mills_ms'].iloc[-1])
+        #print('Window created in range, Left: ', cropped_left['timestamp_mills_ms'].iloc[0],'-', cropped_left['timestamp_mills_ms'].iloc[-1], ' Right ', cropped_right['timestamp_mills_ms'].iloc[0], '-',  cropped_right['timestamp_mills_ms'].iloc[-1])
 
         return cropped_left, cropped_right, start_time
 
@@ -262,33 +301,30 @@ class SlidingWindowIMUsDataset(Dataset):
 
         num_segments = ((self.window_len - self.sample_len) // self.hop) + 1
 
-        print('Creating segments, num_segments: ', num_segments, ' range: ')
+        #print('Creating segments, num_segments: ', num_segments, ' range: ')
 
         for i, _ in enumerate(range(num_segments)):
             end_time = start_time + self.sample_len
-            print('------------Segment ', i, '------------')
-            print('Segment range in ms: ', start_time, '-', end_time)
+            #print('------------Segment ', i, '------------')
+            #print('Segment range in ms: ', start_time, '-', end_time)
 
             segment_left = cropped_left[(cropped_left['timestamp_mills_ms'] >= start_time) &
                                         (cropped_left['timestamp_mills_ms'] < end_time)]
             segment_right = cropped_right[(cropped_right['timestamp_mills_ms'] >= start_time) &
                                           (cropped_right['timestamp_mills_ms'] < end_time)]
-            print('Segment created in range, Left: ', segment_left['timestamp_mills_ms'].iloc[0],'-', segment_left['timestamp_mills_ms'].iloc[-1], ' Right ', segment_right['timestamp_mills_ms'].iloc[0], '-',  segment_right['timestamp_mills_ms'].iloc[-1])
-            print('Segment count: ', len(segment_left), ' ', len(segment_right))
+            #print('Segment created in range, Left: ', segment_left['timestamp_mills_ms'].iloc[0],'-', segment_left['timestamp_mills_ms'].iloc[-1], ' Right ', segment_right['timestamp_mills_ms'].iloc[0], '-',  segment_right['timestamp_mills_ms'].iloc[-1])
+            #print('Segment count: ', len(segment_left), ' ', len(segment_right))
             segments_left.append(segment_left)
             segments_right.append(segment_right)
 
             # Increment start times by self.hop for the next segment
             start_time += self.hop
-
-        for i in range(len(segments_left)):
-            print('Segments left range in ms ', i, ': ', segments_left[i]['timestamp_mills_ms'].iloc[-1] - segments_left[i]['timestamp_mills_ms'].iloc[0])
-
+            
         return segments_left, segments_right
 
 
     def process_segment(self, segment):
-        #print('segment.shape', segment.shape)
+        #print('++++++++++++++++++++++++++++++Processing segment++++++++++++++++++++++++++++++++++++++')
         # Encode lables
         segment = self.encode_IMU_data(segment)
 
@@ -296,6 +332,7 @@ class SlidingWindowIMUsDataset(Dataset):
         most_common_label = segment['label'].mode()
         if len(most_common_label) > 1:
             print("Multiple most common labels found. Choosing the first one.")
+        print('Most common label', most_common_label)
         most_common_label = most_common_label.iloc[0]
 
         # Calculate the difference
@@ -305,51 +342,26 @@ class SlidingWindowIMUsDataset(Dataset):
         pd.set_option('display.max_columns', None)
         df.loc[:, 'timestamp_mills_ms'] = pd.to_numeric(df['timestamp_mills_ms'], errors='coerce')
         df.loc[:, 'time_diff'] = df['timestamp_mills_ms'].diff()
-        average_time_diff_ms = df['time_diff'].mean()
-        average_time_diff_s = average_time_diff_ms / 1000
-        sampling_frequency = int(1 / average_time_diff_s)
+        #average_time_diff_ms = df['time_diff'].mean()
+        #average_time_diff_s = average_time_diff_ms / 1000
+        #sampling_frequency = int(1 / average_time_diff_s)
 
         # calculate acc features
-        flirt_acc_features = get_acc_features(segment[['AX', 'AY', 'AZ']], window_length=2,
-                                              window_step_size=2, data_frequency=sampling_frequency)
-        std_features = df[['AX', 'AY', 'AZ']].std()
-        for col in std_features.index:
-            flirt_acc_features[f'std_{col}'] = std_features[col]
-
-        percentiles = [0.25, 0.5, 0.75]
-        percentile_features = df[['AX', 'AY', 'AZ']].quantile(percentiles)
-
-        for percentile in percentiles:
-            for col in percentile_features.columns:
-                flirt_acc_features[f'percentile_{col}_{int(percentile*100)}'] = percentile_features.loc[percentile, col]
+        acc_features = self.calculate_features_per_axis(segment[['AX', 'AY', 'AZ']])
 
         # calculate gyro features
-        flirt_gyro_features = get_acc_features(segment[['GX', 'GY', 'GZ']], window_length=2,
-                                               window_step_size=2, data_frequency=sampling_frequency)
-        std_features = df[['GX', 'GY', 'GZ']].std()
-        for col in std_features.index:
-            flirt_gyro_features[f'std_{col}'] = std_features[col]
+        gyro_features = self.calculate_features_per_axis(segment[['GX', 'GY', 'GZ']])
 
-        percentile_features = df[['GX', 'GY', 'GZ']].quantile(percentiles)
-
-        for percentile in percentiles:
-            for col in percentile_features.columns:
-                flirt_gyro_features[f'percentile_{col}_{int(percentile*100)}'] = percentile_features.loc[percentile, col]
-
-        #change acc to gyro string
-        flirt_gyro_features.columns = [col.replace('acc', 'gyro') for col in flirt_gyro_features.columns]
-
-
-        segment_result = pd.concat([flirt_gyro_features, flirt_gyro_features], axis=1)
+        merged_dict = {**acc_features, **gyro_features}
+        segment_result =  pd.DataFrame([merged_dict])
 
         # TODO somtimes shape is (2, 200) and sometimes (1, 200), possibly because of bit bigger data window
         segment_result = segment_result.iloc[0]
         segment_result['segment_items'] = segment.shape[0]
         segment_result['label'] = most_common_label
-        #print('flirt_acc_features.shape: ', flirt_acc_features.shape)
-        #print('flirt_gyro_features.shape)', flirt_gyro_features.shape)
+        #print('flirt_acc_features.shape: ', len(acc_features))
+        #print('flirt_gyro_features.shape)', len(gyro_features))
         #print('segment_result.shape', segment_result.shape)
-        #print('segment_result', segment_result)
 
         return segment_result
 
@@ -377,7 +389,7 @@ class SlidingWindowIMUsDataset(Dataset):
         #print('Croped left range in ms', cropped_left['timestamp_mills_ms'].iloc[-1] - cropped_left['timestamp_mills_ms'].iloc[0])
         #print('Croped right range in ms', cropped_right['timestamp_mills_ms'].iloc[-1] - cropped_right['timestamp_mills_ms'].iloc[0])
 
-        # Create segments based on start_time + hop
+        # Create segments based on start_time + self.hop
         segments_left, segments_right = self.create_segments(cropped_left, cropped_right, start_time)
 
         # Process segments as needed
@@ -403,9 +415,10 @@ class SlidingWindowIMUsDataset(Dataset):
         features_tensor = torch.stack([torch.tensor(feature.values, dtype=torch.float32) for feature in concatenated_features])
         labels_tensor = torch.tensor(labels, dtype=torch.long)
 
-        print('features_tensor.shape', features_tensor.shape)
-        print('labels_tensor.shape', labels_tensor.shape)
-        print('labels_tensor', labels_tensor[0])
+        #print('features_tensor.shape', features_tensor.shape)
+        #print('labels_tensor.shape', labels_tensor.shape)
+        #print('labels_tensor[0]', labels_tensor[0])
+        #print('features_tensor[0]', features_tensor[0])
         return features_tensor, labels_tensor
 
 
