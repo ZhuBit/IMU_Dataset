@@ -83,9 +83,6 @@ def tmse_loss(x, targ, gamma=0.15):
 
     return total_loss * gamma
 
-
-
-
 class MS_TCN2(nn.Module):
     def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes):
         super(MS_TCN2, self).__init__()

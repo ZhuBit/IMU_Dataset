@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from src.dataset import SlidingWindowIMUsDataset
-from src.models import MS_TCN2
+from src.models import MS_TCN2, MS_TCN
 from src.models import focal_loss, tmse_loss
 import torchmetrics
 import warnings
@@ -30,7 +30,7 @@ def train(device, train_dataloader, val_dataloader, net, optimizer, scheduler, E
             labels = labels.to(device)
 
             optimizer.zero_grad()
-            outputs = net(features)
+            outputs = net(features)[-1]
 
             loss = 0
             splits = labels.shape[0]
@@ -55,9 +55,11 @@ def train(device, train_dataloader, val_dataloader, net, optimizer, scheduler, E
 
             acc = 0
             for i, value in enumerate(outputs):
-                prob = F.softmax(value, dim=1)
+                #prob = F.softmax(value, dim=1)
+                #pred = prob.data.max(dim=1)#[1]
+                prob = F.softmax(value.permute(1, 0))
                 pred = prob.data.max(dim=1)[1]
-                acc += torchmetrics.functional.accuracy(pred.squeeze(), labels.squeeze(), task="multiclass", num_classes=10).item()
+                acc += torchmetrics.functional.accuracy(pred, labels[i], task="multiclass", num_classes=10).item() #.squeeze()
             train_acc.append(acc / splits)
 
         # Validation
@@ -71,7 +73,7 @@ def train(device, train_dataloader, val_dataloader, net, optimizer, scheduler, E
                 #hands_data = torch.cat([left_data, right_data], dim=1)
                 #labels = val_data[2].type(torch.long).to(device)
                 val_data = val_data.to(device).permute(0,2,1)
-                outputs = net(val_data)
+                outputs = net(val_data)[-1]
                 labels = labels.to(device)
 
                 loss_val = 0
@@ -132,7 +134,7 @@ if __name__ == '__main__':
                                            augmentation=False, ambidextrous=False)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    net = MS_TCN2(num_layers_PG=10, num_layers_R=10, num_R=4, num_f_maps=128, dim=44, num_classes=10)
+    net = MS_TCN2(num_layers_PG=3, num_layers_R=3, num_R=4, num_f_maps=128, dim=44, num_classes=10)
     net.to(device)
 
     optimizer = optim.Adam(net.parameters(), lr=Lr_Rate, weight_decay=0.001)
