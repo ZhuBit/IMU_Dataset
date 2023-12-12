@@ -17,15 +17,17 @@ class SlidingWindowIMUsDataset(Dataset):
         all_files = os.listdir(data_dir)
 
         # Filter out files that end with '_L.csv'
-        # self.left_files = [f for f in all_files if f.endswith('_L_annotated.csv')]
         self.left_files = []
-        for f in all_files:
-            if f.endswith('_L_annotated.csv'):
-                self.left_files.append(f)
+
+        # *************************************************************
+        #added for loop to synthetically increase the size by 5 --> high batch size possible
+        for i in range(1):
+            for f in all_files:
+                if f.endswith('_L_annotated.csv'):
+                    self.left_files.append(f)
 
         # Sort the files for consistency
         self.left_files.sort()
-
         self.data_dir = data_dir
         self.window_len = window_len # How big is the main window
         self.sample_len = sample_len # How big is the sample we want to take from the window
@@ -54,7 +56,6 @@ class SlidingWindowIMUsDataset(Dataset):
         cropped_file = cropped_file.drop_duplicates(subset='timestamp_mills_ms', keep="last")
 
         for i, j in zip(['GX', 'GY', 'GZ', 'AX', 'AY', 'AZ'], range(6)):
-
             #create a function that models the data
             #note - i find quadratic function to work well, cubic overfits a bit...
             #see documentation on functions:
@@ -109,7 +110,7 @@ class SlidingWindowIMUsDataset(Dataset):
     def resample_lables_data(self, df):
         step = 1000 // self.freq
         # take every step element
-        # TODO how to make this function follow btter IMU data?
+        # TODO how to make this function follow better IMU data?
         labels_resampled = df.iloc[::step, :]
         return labels_resampled
 
@@ -178,7 +179,9 @@ class SlidingWindowIMUsDataset(Dataset):
                     if key_suffix:
                         axis_key = f'{key_suffix}_{axis_key}'
                     results[axis_key] = np.nan
-
+        none_features = [key for key, value in results.items() if value is None]
+        if none_features:
+            raise ValueError(f"Features with None in {self.basename}: {', '.join(none_features)}")
         #print('Results shape: ', len(results))
         return results
         
@@ -326,16 +329,20 @@ class SlidingWindowIMUsDataset(Dataset):
     def process_segment(self, segment):
         #print('++++++++++++++++++++++++++++++Processing segment++++++++++++++++++++++++++++++++++++++')
         # Encode lables
+        if segment.empty:
+            segment = pd.DataFrame(0, index=[0], columns=segment.columns)
+
         segment = self.encode_IMU_data(segment)
 
         # pick most common label
         most_common_label = segment['label'].mode()
-        if len(most_common_label) > 1:
-            print("Multiple most common labels found. Choosing the first one.")
-        print('Most common label', most_common_label)
-        most_common_label = most_common_label.iloc[0]
-
-        # Calculate the difference
+        if most_common_label.empty:
+            most_common_label = 9  # TODO somtimes there is no label?? => than background?
+        else:
+            if len(most_common_label) > 1:
+                #print("Multiple most common labels found. Choosing the first one.")
+                pass
+            most_common_label = most_common_label.iloc[0]
         #print(f"Time difference between first and last row: {segment['timestamp_mills_ms'].iloc[-1] - segment['timestamp_mills_ms'].iloc[0]} milliseconds")
         # claulate frequency for segment
         df = segment.copy()
@@ -351,6 +358,13 @@ class SlidingWindowIMUsDataset(Dataset):
 
         # calculate gyro features
         gyro_features = self.calculate_features_per_axis(segment[['GX', 'GY', 'GZ']])
+
+        acc_nan_features = [feature for feature, value in acc_features.items() if pd.isna(value)]
+        gyro_nan_features = [feature for feature, value in gyro_features.items() if pd.isna(value)]
+
+        if acc_nan_features or gyro_nan_features:
+            error_message = f"NaN values found in features. ACC: {acc_nan_features}, GYRO: {gyro_nan_features}"
+            raise ValueError(error_message)
 
         merged_dict = {**acc_features, **gyro_features}
         segment_result =  pd.DataFrame([merged_dict])
@@ -369,7 +383,6 @@ class SlidingWindowIMUsDataset(Dataset):
         # Get the base name without the '_L.csv' part
         idx = int(idx)
         base_name = self.left_files[idx].split('_L_annotated.csv')[0]
-        #print('Base name', base_name)
 
         # Construct from names left and right, labels files
         left_file = os.path.join(self.data_dir, base_name + '_L_annotated.csv')
@@ -396,6 +409,14 @@ class SlidingWindowIMUsDataset(Dataset):
         # For example, calculate features for each segment
         features_left = [self.process_segment(segment) for segment in segments_left]
         features_right = [self.process_segment(segment) for segment in segments_right]
+        for i, feature in enumerate(features_left):
+            if torch.isnan(torch.tensor(feature, dtype=torch.float)).any():
+                raise ValueError(f"NaN detected in 'features_left' at index {i}: {base_name}")
+
+        # Check for NaN in features_right and identify which feature it is
+        for i, feature in enumerate(features_right):
+            if torch.isnan(torch.tensor(feature, dtype=torch.float)).any():
+                raise ValueError(f"NaN detected in 'features_right' at index {i}: {base_name}")
 
         # Apply augmentation with 50% probability if augment is True
         """if self.augmentation and random.random() > 0.5:
@@ -412,13 +433,16 @@ class SlidingWindowIMUsDataset(Dataset):
 
         # Concatenate features from left and right for each segment
         concatenated_features = [pd.concat([left, right], axis=0) for left, right in zip(features_left, features_right)]
-        features_tensor = torch.stack([torch.tensor(feature.values, dtype=torch.float32) for feature in concatenated_features])
+        for feature in concatenated_features:
+            # Ensure the data is numeric and convert it to float32
+            feature_values = feature.values.astype(np.float32)
+
+            # Convert the numpy array to a PyTorch tensor
+            feature_tensor = torch.tensor(feature_values)
+        features_tensor = torch.stack([torch.tensor(feature.values.astype(np.float32)) for feature in concatenated_features])
+
         labels_tensor = torch.tensor(labels, dtype=torch.long)
 
-        #print('features_tensor.shape', features_tensor.shape)
-        #print('labels_tensor.shape', labels_tensor.shape)
-        #print('labels_tensor[0]', labels_tensor[0])
-        #print('features_tensor[0]', features_tensor[0])
         return features_tensor, labels_tensor
 
 

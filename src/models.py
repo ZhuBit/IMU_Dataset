@@ -60,7 +60,8 @@ from torchvision.ops import sigmoid_focal_loss
 def focal_loss(x, y, num_class, alpha=0.25, gamma=2):
     x_squeeze = x.squeeze(0).transpose(0, 1)
     targ = torch.nn.functional.one_hot(y, num_classes=num_class).type(torch.float)
-    print('X shape: ', x_squeeze.shape, 'Y shape: ', targ.shape)
+    #print('X shape: ', x_squeeze.shape, 'Y shape: ', targ.shape)
+    #print('x_squeeze:', x_squeeze)
     return sigmoid_focal_loss(x_squeeze, targ, alpha=alpha, gamma=gamma, reduction='mean')
 
 """def focal_loss(x, y, num_class, alpha=0.25, gamma=2):
